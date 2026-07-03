@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>培養皿 — 可編程彩色生命遊戲</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #050807;
+    --glass: rgba(13,20,17,0.55);
+    --glass-strong: rgba(10,16,13,0.78);
+    --line: rgba(124,148,139,0.22);
+    --cyan: #4CE0B3;
+    --magenta: #FF5D8F;
+    --amber: #FFB84C;
+    --text: #E7F5EF;
+    --muted: #90ACA2;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    overflow:hidden;
+    background:var(--bg);
+    font-family:'Space Grotesk', sans-serif;
+    color:var(--text);
+  }
+
+  /* ---------- 全螢幕培養皿 ---------- */
+  #dishCanvas{
+    position:fixed; inset:0;
+    width:100vw; height:100vh;
+    display:block;
+    cursor:crosshair;
+    filter: drop-shadow(0 0 3px rgba(76,224,179,0.32)) drop-shadow(0 0 10px rgba(76,224,179,0.14));
+  }
+  .vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:2;
+    background: radial-gradient(circle at center, transparent 55%, rgba(0,0,0,0.65) 100%);
+  }
+  .scanline{
+    position:fixed; inset:0; pointer-events:none; z-index:2;
+    background: repeating-linear-gradient(180deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:overlay;
+  }
+
+  /* ---------- 共用 HUD / glass ---------- */
+  .hud{
+    position:fixed; z-index:10;
+    pointer-events:none;
+    transition:opacity 0.5s ease;
+  }
+  .hud.idle{ opacity:0.18; }
+  .glass{
+    background:var(--glass);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border:1px solid var(--line);
+    border-radius:14px;
+  }
+  .pointer{ pointer-events:auto; }
+
+  /* top-left brand */
+  .hud-brand{ top:20px; left:20px; }
+  .hud-brand .glass{ padding:12px 18px; }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand .dot{
+    width:9px;height:9px;border-radius:50%;
+    background:var(--cyan);
+    box-shadow:0 0 12px 2px rgba(76,224,179,0.75);
+    display:inline-block; transform:translateY(-1px);
+  }
+  h1{ font-size:16px; font-weight:700; margin:0; letter-spacing:0.2px; }
+  h1 span{ color:var(--muted); font-weight:500; font-size:12px; }
+  .subtitle{
+    color:var(--muted); font-size:11px;
+    font-family:'JetBrains Mono', monospace;
+    margin-top:4px;
+  }
+
+  /* top-right stats */
+  .hud-stats{ top:20px; right:20px; text-align:right; }
+  .hud-stats .glass{ padding:12px 16px; }
+  .stats-row{
+    display:flex; gap:18px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px; color:var(--muted);
+  }
+  .stats-row b{ color:var(--text); font-size:15px; display:block; font-weight:700; }
+  #sparkCanvas{ margin-top:8px; display:block; }
+
+  /* bottom dock */
+  .hud-dock{
+    bottom:20px; left:50%; transform:translateX(-50%);
+    display:flex; justify-content:center;
+  }
+  .dock-inner{
+    display:flex; align-items:center; gap:14px;
+    padding:10px 16px;
+    flex-wrap:wrap;
+    max-width:92vw;
+    justify-content:center;
+  }
+  button{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600; font-size:12.5px;
+    border-radius:9px;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,0.03);
+    color:var(--text);
+    padding:8px 13px;
+    cursor:pointer;
+    transition:border-color 0.15s, transform 0.1s, background 0.15s;
+    white-space:nowrap;
+  }
+  button:hover{ border-color:rgba(76,224,179,0.55); background:rgba(76,224,179,0.08); }
+  button:active{ transform:scale(0.96); }
+  button.primary{ background:var(--cyan); color:#052018; border-color:var(--cyan); }
+  button.primary:hover{ background:#5cf0c1; }
+  button.danger:hover{ border-color:rgba(255,93,143,0.6); }
+  button.accent{ border-color:rgba(76,224,179,0.4); color:var(--cyan); }
+
+  .field{
+    display:flex; align-items:center; gap:7px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color:var(--muted);
+  }
+  input[type=range]{ accent-color:var(--cyan); width:80px; }
+  input[type=color]{
+    width:26px; height:26px; border:1px solid var(--line);
+    border-radius:6px; background:none; padding:0; cursor:pointer;
+  }
+  .divider{ width:1px; height:22px; background:var(--line); }
+  label.checkbox{
+    display:flex; align-items:center; gap:5px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color:var(--muted); cursor:pointer;
+    white-space:nowrap;
+  }
+
+  /* code drawer */
+  .drawer{
+    position:fixed; top:0; right:0; bottom:0;
+    width:min(460px, 92vw);
+    z-index:30;
+    transform:translateX(100%);
+    transition:transform 0.4s cubic-bezier(.16,.84,.44,1);
+    background:var(--glass-strong);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    border-left:1px solid var(--line);
+    padding:22px;
+    display:flex; flex-direction:column;
+    box-shadow:-30px 0 60px rgba(0,0,0,0.35);
+  }
+  .drawer.open{ transform:translateX(0); }
+
+  .drawer-header{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:16px;
+  }
+  .drawer-title{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px; letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--muted); display:flex; align-items:center; gap:8px;
+  }
+  .drawer-title::before{ content:''; width:5px; height:5px; background:var(--cyan); display:inline-block; border-radius:1px; }
+  .close-btn{
+    background:none; border:none; color:var(--muted);
+    font-size:18px; cursor:pointer; padding:2px 6px; border-radius:6px;
+  }
+  .close-btn:hover{ color:var(--text); background:rgba(255,255,255,0.06); border:none; }
+
+  select{
+    font-family:'JetBrains Mono', monospace; font-size:12px;
+    background:rgba(255,255,255,0.04); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px;
+    width:100%; margin-bottom:14px;
+  }
+
+  .editor-tab{ display:flex; align-items:center; margin-bottom:8px; }
+  .filename{
+    font-family:'JetBrains Mono', monospace; font-size:12px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid var(--line); border-bottom:none;
+    border-radius:8px 8px 0 0; padding:6px 12px;
+    color:var(--cyan); display:inline-flex; align-items:center; gap:6px;
+  }
+  .filename .blink{ width:6px; height:12px; background:var(--cyan); animation:blink 1.1s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  textarea{
+    width:100%; flex:1; min-height:220px;
+    background:rgba(5,8,7,0.6);
+    color:#CFEDE1;
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px; line-height:1.6;
+    border:1px solid var(--line);
+    border-radius:0 10px 10px 10px;
+    padding:14px; resize:none; tab-size:2;
+  }
+  textarea:focus{ outline:none; border-color:rgba(76,224,179,0.5); }
+
+  .rule-controls{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-top:12px; gap:10px;
+  }
+
+  .console{
+    margin-top:12px;
+    font-family:'JetBrains Mono', monospace; font-size:11.5px;
+    padding:9px 12px; border-radius:8px;
+    border:1px solid var(--line);
+    background:rgba(255,255,255,0.03);
+    color:var(--muted); min-height:16px;
+  }
+  .console.ok{ color:var(--cyan); border-color:rgba(76,224,179,0.35); }
+  .console.err{ color:var(--magenta); border-color:rgba(255,93,143,0.35); }
+
+  .hint{
+    font-family:'JetBrains Mono', monospace; font-size:10.5px;
+    color:var(--muted); margin-top:10px; line-height:1.7;
+  }
+  .hint code{ color:var(--amber); }
+
+  /* first-run nudge */
+  .nudge{
+    position:fixed; z-index:10; top:20px; left:50%; transform:translateX(-50%);
+    font-family:'JetBrains Mono', monospace; font-size:11.5px;
+    color:var(--muted); padding:9px 16px;
+    animation: nudgeFade 5s ease forwards;
+    pointer-events:none;
+  }
+  .nudge b{ color:var(--cyan); }
+  @keyframes nudgeFade{
+    0%{ opacity:0; transform:translate(-50%,-6px); }
+    12%{ opacity:1; transform:translate(-50%,0); }
+    80%{ opacity:1; }
+    100%{ opacity:0; }
+  }
+
+  @media (max-width: 720px){
+    .hud-brand, .hud-stats{ position:fixed; }
+    .subtitle{ display:none; }
+    .dock-inner{ gap:8px; padding:8px 10px; }
+    .field input[type=range]{ width:56px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="dishCanvas"></canvas>
+<div class="vignette"></div>
+<div class="scanline"></div>
+
+<div class="nudge">按 <b>E</b> 開啟規則編輯器，滑鼠拖曳畫布即可作畫</div>
+
+<!-- 左上：品牌 -->
+<div class="hud hud-brand">
+  <div class="glass pointer">
+    <div class="brand"><span class="dot"></span><h1>培養皿 <span>Programmable Color Life</span></h1></div>
+    <div class="subtitle">拖曳作畫 ｜ 空白鍵播放/暫停 ｜ E 開啟規則</div>
+  </div>
+</div>
+
+<!-- 右上：統計 -->
+<div class="hud hud-stats">
+  <div class="glass pointer">
+    <div class="stats-row">
+      <div><b id="statGen">0</b>GEN</div>
+      <div><b id="statPop">0</b>POP</div>
+      <div><b id="statSpeed">6</b>GEN/s</div>
+    </div>
+    <canvas id="sparkCanvas" width="200" height="36"></canvas>
+  </div>
+</div>
+
+<!-- 底部：控制列 -->
+<div class="hud hud-dock">
+  <div class="glass dock-inner pointer">
+    <button class="primary" id="playBtn">▶ 播放</button>
+    <button id="stepBtn">單步</button>
+    <button id="randomBtn">🎲 隨機</button>
+    <button class="danger" id="clearBtn">清空</button>
+
+    <div class="divider"></div>
+
+    <div class="field">速度 <input type="range" id="speedRange" min="1" max="30" value="6"></div>
+    <div class="field">格子 <input type="range" id="cellSizeRange" min="4" max="20" value="9"></div>
+    <div class="field">畫筆 <input type="color" id="brushColor" value="#4ce0b3">
+      <input type="range" id="brushSizeRange" min="1" max="6" value="1"></div>
+    <label class="checkbox"><input type="checkbox" id="wrapToggle" checked> 環繞</label>
+
+    <div class="divider"></div>
+
+    <button class="accent" id="drawerToggle">{ } 規則編輯器</button>
+  </div>
+</div>
+
+<!-- 右側：規則編輯器抽屜 -->
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <span class="drawer-title">Rule Engine</span>
+    <button class="close-btn" id="drawerClose">✕</button>
+  </div>
+
+  <select id="presetSelect"></select>
+
+  <div class="editor-tab">
+    <span class="filename">rule.js <span class="blink"></span></span>
+  </div>
+  <textarea id="ruleEditor" spellcheck="false"></textarea>
+
+  <div class="rule-controls">
+    <button class="primary" id="applyBtn">套用（Ctrl+Enter）</button>
+    <button id="resetRuleBtn">還原範本</button>
+  </div>
+
+  <div class="console" id="console">尚未套用規則。點擊「套用」開始。</div>
+
+  <div class="hint">
+    可用參數：<code>cell</code> <code>neighbors</code>（8 鄰居，N→NE→E→SE→S→SW→W→NW）
+    <code>x, y, gen</code>。須回傳 <code>{ alive, color:{r,g,b} }</code>。
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- 規則範本 ----------
+  const PRESETS = [
+    {
+      id: 'classic',
+      name: '經典生命遊戲（彩色版）',
+      code:
+`// B3/S23：標準康威規則，顏色 = 父細胞顏色的混合
+const aliveNeighbors = neighbors.filter(n => n.alive);
+const count = aliveNeighbors.length;
+
+let alive;
+if (cell.alive) {
+  alive = (count === 2 || count === 3);
+} else {
+  alive = (count === 3);
+}
+
+let color = cell.color;
+if (alive && count > 0) {
+  const avg = { r: 0, g: 0, b: 0 };
+  for (const n of aliveNeighbors) {
+    avg.r += n.color.r; avg.g += n.color.g; avg.b += n.color.b;
+  }
+  avg.r = Math.round(avg.r / count);
+  avg.g = Math.round(avg.g / count);
+  avg.b = Math.round(avg.b / count);
+
+  if (!cell.alive) {
+    color = avg; // 誕生：混合鄰居顏色
+  } else {
+    color = {
+      r: Math.round((cell.color.r + avg.r) / 2),
+      g: Math.round((cell.color.g + avg.g) / 2),
+      b: Math.round((cell.color.b + avg.b) / 2)
+    };
+  }
+}
+
+return { alive, color };`
+    },
+    {
+      id: 'coral',
+      name: '螢光菌落（緩慢擴張＋色相漂移）',
+      code:
+`// B34/S234：比經典規則寬鬆，菌落會緩慢擴張，並隨世代讓色相漂移
+const aliveNeighbors = neighbors.filter(n => n.alive);
+const count = aliveNeighbors.length;
+
+let alive;
+if (cell.alive) {
+  alive = (count === 2 || count === 3 || count === 4);
+} else {
+  alive = (count === 3 || count === 4);
+}
+
+let color = cell.color;
+if (alive) {
+  if (count > 0) {
+    let r = 0, g = 0, b = 0;
+    for (const n of aliveNeighbors) { r += n.color.r; g += n.color.g; b += n.color.b; }
+    r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+    color = cell.alive
+      ? { r: Math.round((cell.color.r*3+r)/4), g: Math.round((cell.color.g*3+g)/4), b: Math.round((cell.color.b*3+b)/4) }
+      : { r, g, b };
+  }
+  const hsl = rgbToHsl(color.r, color.g, color.b);
+  hsl.h = (hsl.h + 0.6) % 360;
+  color = hslToRgb(hsl.h, hsl.s, hsl.l);
+}
+
+return { alive, color };`
+    },
+    {
+      id: 'lava',
+      name: '熔岩擴散（連續型，無生死）',
+      code:
+`// 沒有生死之分，每格永遠「存活」，只是顏色隨鄰居持續擴散、混合
+const avg = { r: 0, g: 0, b: 0 };
+for (const n of neighbors) {
+  avg.r += n.color.r; avg.g += n.color.g; avg.b += n.color.b;
+}
+avg.r /= neighbors.length; avg.g /= neighbors.length; avg.b /= neighbors.length;
+
+let r = cell.color.r * 0.85 + avg.r * 0.15;
+let g = cell.color.g * 0.85 + avg.g * 0.15;
+let b = cell.color.b * 0.85 + avg.b * 0.15;
+
+if (Math.random() < 0.0006) {
+  r = 80 + Math.random() * 175;
+  g = 80 + Math.random() * 175;
+  b = 80 + Math.random() * 175;
+}
+
+return {
+  alive: true,
+  color: { r: Math.round(r), g: Math.round(g), b: Math.round(b) }
+};`
+    },
+    {
+      id: 'mutation',
+      name: '高變異煙火（Conway ＋ 隨機突變）',
+      code:
+`// 規則同經典生命遊戲，但誕生時有機率產生劇烈變異色，製造煙火感
+const aliveNeighbors = neighbors.filter(n => n.alive);
+const count = aliveNeighbors.length;
+
+let alive;
+if (cell.alive) {
+  alive = (count === 2 || count === 3);
+} else {
+  alive = (count === 3);
+}
+
+let color = cell.color;
+if (alive && count > 0) {
+  if (!cell.alive && Math.random() < 0.08) {
+    color = {
+      r: Math.floor(Math.random() * 256),
+      g: Math.floor(Math.random() * 256),
+      b: Math.floor(Math.random() * 256)
+    };
+  } else {
+    const avg = { r: 0, g: 0, b: 0 };
+    for (const n of aliveNeighbors) { avg.r += n.color.r; avg.g += n.color.g; avg.b += n.color.b; }
+    avg.r = Math.round(avg.r / count); avg.g = Math.round(avg.g / count); avg.b = Math.round(avg.b / count);
+    color = cell.alive
+      ? { r: Math.round((cell.color.r+avg.r)/2), g: Math.round((cell.color.g+avg.g)/2), b: Math.round((cell.color.b+avg.b)/2) }
+      : avg;
+  }
+}
+
+return { alive, color };`
+    }
+  ];
+
+  function rgbToHsl(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    let h=0, s=0, l=(max+min)/2;
+    if(max!==min){
+      const d=max-min;
+      s = l>0.5 ? d/(2-max-min) : d/(max+min);
+      switch(max){
+        case r: h=(g-b)/d+(g<b?6:0); break;
+        case g: h=(b-r)/d+2; break;
+        case b: h=(r-g)/d+4; break;
+      }
+      h*=60;
+    }
+    return {h,s,l};
+  }
+  function hslToRgb(h,s,l){
+    h/=360;
+    let r,g,b;
+    if(s===0){ r=g=b=l; }
+    else{
+      const hue2rgb=(p,q,t)=>{
+        if(t<0)t+=1; if(t>1)t-=1;
+        if(t<1/6)return p+(q-p)*6*t;
+        if(t<1/2)return q;
+        if(t<2/3)return p+(q-p)*(2/3-t)*6;
+        return p;
+      };
+      const q = l<0.5 ? l*(1+s) : l+s-l*s;
+      const p = 2*l-q;
+      r=hue2rgb(p,q,h+1/3); g=hue2rgb(p,q,h); b=hue2rgb(p,q,h-1/3);
+    }
+    return { r: Math.round(r*255), g: Math.round(g*255), b: Math.round(b*255) };
+  }
+  function hexToRgb(hex){
+    const v = parseInt(hex.slice(1),16);
+    return { r:(v>>16)&255, g:(v>>8)&255, b:v&255 };
+  }
+
+  // ---------- DOM ----------
+  const canvas = document.getElementById('dishCanvas');
+  const ctx = canvas.getContext('2d');
+  const sparkCanvas = document.getElementById('sparkCanvas');
+  const sparkCtx = sparkCanvas.getContext('2d');
+
+  const playBtn = document.getElementById('playBtn');
+  const stepBtn = document.getElementById('stepBtn');
+  const randomBtn = document.getElementById('randomBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const speedRange = document.getElementById('speedRange');
+  const cellSizeRange = document.getElementById('cellSizeRange');
+  const brushColor = document.getElementById('brushColor');
+  const brushSizeRange = document.getElementById('brushSizeRange');
+  const wrapToggle = document.getElementById('wrapToggle');
+  const presetSelect = document.getElementById('presetSelect');
+  const ruleEditor = document.getElementById('ruleEditor');
+  const applyBtn = document.getElementById('applyBtn');
+  const resetRuleBtn = document.getElementById('resetRuleBtn');
+  const consoleBox = document.getElementById('console');
+  const statGen = document.getElementById('statGen');
+  const statPop = document.getElementById('statPop');
+  const statSpeed = document.getElementById('statSpeed');
+  const drawer = document.getElementById('drawer');
+  const drawerToggle = document.getElementById('drawerToggle');
+  const drawerClose = document.getElementById('drawerClose');
+  const huds = document.querySelectorAll('.hud');
+
+  // ---------- 狀態 ----------
+  let dpr = Math.max(1, window.devicePixelRatio || 1);
+  let cellSize = parseInt(cellSizeRange.value, 10);
+  let cols = 0, rows = 0;
+  let grid = [];
+  let generation = 0;
+  let wrapEdges = true;
+  let ruleFn = null;
+  let playing = false;
+  let timer = null;
+  let drawing = false;
+  let popHistory = [];
+
+  function emptyCell(){ return { alive:false, color:{r:0,g:0,b:0} }; }
+
+  function resizeCanvas(){
+    const displayW = window.innerWidth;
+    const displayH = window.innerHeight;
+    canvas.width = Math.floor(displayW * dpr);
+    canvas.height = Math.floor(displayH * dpr);
+    cols = Math.max(1, Math.floor(displayW / cellSize));
+    rows = Math.max(1, Math.floor(displayH / cellSize));
+  }
+
+  function initGrid(randomize){
+    grid = [];
+    for(let y=0;y<rows;y++){
+      const row = [];
+      for(let x=0;x<cols;x++){
+        if(randomize && Math.random() < 0.14){
+          const hue = Math.random()*360;
+          row.push({ alive:true, color: hslToRgb(hue, 0.75, 0.55) });
+        } else {
+          row.push(emptyCell());
+        }
+      }
+      grid.push(row);
+    }
+    generation = 0;
+    popHistory = [];
+    updateStats();
+    render();
+  }
+
+  function getNeighbors(x,y){
+    const dirs = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+    const out = new Array(8);
+    for(let i=0;i<8;i++){
+      let nx = x+dirs[i][0], ny = y+dirs[i][1];
+      if(wrapEdges){
+        nx = (nx+cols)%cols; ny = (ny+rows)%rows;
+      } else if(nx<0||nx>=cols||ny<0||ny>=rows){
+        out[i] = { alive:false, color:{r:0,g:0,b:0} };
+        continue;
+      }
+      const c = grid[ny][nx];
+      out[i] = { alive:c.alive, color:{ r:c.color.r, g:c.color.g, b:c.color.b } };
+    }
+    return out;
+  }
+
+  function normalizeCell(result){
+    if(!result || typeof result !== 'object') return emptyCell();
+    const alive = !!result.alive;
+    let color = result.color || {r:0,g:0,b:0};
+    const clamp = v => Math.max(0, Math.min(255, Math.round(Number.isFinite(v) ? v : 0)));
+    return { alive, color: { r: clamp(color.r), g: clamp(color.g), b: clamp(color.b) } };
+  }
+
+  function step(){
+    if(!ruleFn) return;
+    const newGrid = new Array(rows);
+    for(let y=0;y<rows;y++){
+      const newRow = new Array(cols);
+      for(let x=0;x<cols;x++){
+        const cell = grid[y][x];
+        const neighbors = getNeighbors(x,y);
+        let result;
+        try{
+          result = ruleFn(
+            { alive:cell.alive, color:{r:cell.color.r,g:cell.color.g,b:cell.color.b} },
+            neighbors, x, y, generation
+          );
+        }catch(e){
+          pause();
+          showConsole('執行時錯誤：' + e.message, true);
+          return;
+        }
+        newRow[x] = normalizeCell(result);
+      }
+      newGrid[y] = newRow;
+    }
+    grid = newGrid;
+    generation++;
+    updateStats();
+  }
+
+  function render(){
+    ctx.fillStyle = '#050807';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    const s = cellSize*dpr;
+    for(let y=0;y<rows;y++){
+      const row = grid[y];
+      for(let x=0;x<cols;x++){
+        const c = row[x];
+        if(c.alive){
+          ctx.fillStyle = `rgb(${c.color.r},${c.color.g},${c.color.b})`;
+          ctx.fillRect(x*s, y*s, s, s);
+        }
+      }
+    }
+  }
+
+  function countPopulation(){
+    let n = 0;
+    for(let y=0;y<rows;y++) for(let x=0;x<cols;x++) if(grid[y][x].alive) n++;
+    return n;
+  }
+
+  function updateStats(){
+    const pop = countPopulation();
+    statGen.textContent = generation;
+    statPop.textContent = pop;
+    popHistory.push(pop);
+    if(popHistory.length > 100) popHistory.shift();
+    drawSpark();
+  }
+
+  function drawSpark(){
+    const w = sparkCanvas.width, h = sparkCanvas.height;
+    sparkCtx.clearRect(0,0,w,h);
+    if(popHistory.length < 2) return;
+    const max = Math.max(1, ...popHistory);
+    sparkCtx.beginPath();
+    popHistory.forEach((v,i)=>{
+      const px = (i/(popHistory.length-1)) * (w-4) + 2;
+      const py = h - 4 - (v/max) * (h-8);
+      if(i===0) sparkCtx.moveTo(px,py); else sparkCtx.lineTo(px,py);
+    });
+    sparkCtx.strokeStyle = '#4CE0B3';
+    sparkCtx.lineWidth = 1.5;
+    sparkCtx.stroke();
+  }
+
+  // ---------- 規則編譯 ----------
+  function showConsole(msg, isErr){
+    consoleBox.textContent = msg;
+    consoleBox.className = 'console ' + (isErr ? 'err' : 'ok');
+  }
+
+  function compileRule(code){
+    try{
+      const fn = new Function('cell','neighbors','x','y','gen', code);
+      const dummyNeighbor = { alive:false, color:{r:0,g:0,b:0} };
+      fn({alive:false,color:{r:0,g:0,b:0}}, new Array(8).fill(dummyNeighbor), 0,0,0);
+      ruleFn = fn;
+      showConsole('✓ 規則已套用', false);
+    }catch(e){
+      showConsole('✗ 編譯錯誤：' + e.message, true);
+    }
+  }
+
+  // ---------- 播放控制 ----------
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.textContent = '⏸ 暫停';
+    tick();
+  }
+  function pause(){
+    playing = false;
+    playBtn.textContent = '▶ 播放';
+    clearTimeout(timer);
+  }
+  function tick(){
+    const speed = parseInt(speedRange.value,10);
+    timer = setTimeout(()=>{
+      step();
+      render();
+      if(playing) tick();
+    }, 1000/speed);
+  }
+
+  // ---------- 抽屜開關 ----------
+  function openDrawer(){ drawer.classList.add('open'); }
+  function closeDrawer(){ drawer.classList.remove('open'); }
+  function toggleDrawer(){ drawer.classList.toggle('open'); }
+
+  drawerToggle.addEventListener('click', toggleDrawer);
+  drawerClose.addEventListener('click', closeDrawer);
+
+  // ---------- 事件 ----------
+  playBtn.addEventListener('click', ()=> playing ? pause() : play());
+  stepBtn.addEventListener('click', ()=>{ step(); render(); });
+  randomBtn.addEventListener('click', ()=>{ pause(); initGrid(true); });
+  clearBtn.addEventListener('click', ()=>{ pause(); initGrid(false); });
+
+  speedRange.addEventListener('input', ()=>{ statSpeed.textContent = speedRange.value; });
+
+  cellSizeRange.addEventListener('change', ()=>{
+    cellSize = parseInt(cellSizeRange.value,10);
+    pause();
+    resizeCanvas();
+    initGrid(true);
+  });
+
+  wrapToggle.addEventListener('change', ()=>{ wrapEdges = wrapToggle.checked; });
+
+  applyBtn.addEventListener('click', ()=> compileRule(ruleEditor.value));
+  ruleEditor.addEventListener('keydown', (e)=>{
+    if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){
+      e.preventDefault();
+      compileRule(ruleEditor.value);
+    }
+    e.stopPropagation();
+  });
+
+  function loadPreset(id){
+    const preset = PRESETS.find(p => p.id === id) || PRESETS[0];
+    ruleEditor.value = preset.code;
+    compileRule(preset.code);
+  }
+  presetSelect.addEventListener('change', ()=> loadPreset(presetSelect.value));
+  resetRuleBtn.addEventListener('click', ()=> loadPreset(presetSelect.value));
+
+  PRESETS.forEach(p=>{
+    const opt = document.createElement('option');
+    opt.value = p.id; opt.textContent = p.name;
+    presetSelect.appendChild(opt);
+  });
+
+  // ---------- 滑鼠繪製 ----------
+  function paintAt(clientX, clientY, erase){
+    const px = clientX*dpr, py = clientY*dpr;
+    const cx = Math.floor(px/(cellSize*dpr)), cy = Math.floor(py/(cellSize*dpr));
+    const brush = parseInt(brushSizeRange.value,10);
+    const rgb = hexToRgb(brushColor.value);
+    for(let dy=-(brush-1); dy<=(brush-1); dy++){
+      for(let dx=-(brush-1); dx<=(brush-1); dx++){
+        if(Math.hypot(dx,dy) > brush-0.5) continue;
+        const nx = cx+dx, ny = cy+dy;
+        if(nx<0||nx>=cols||ny<0||ny>=rows) continue;
+        grid[ny][nx] = erase ? emptyCell() : { alive:true, color:{r:rgb.r,g:rgb.g,b:rgb.b} };
+      }
+    }
+    render();
+  }
+  canvas.addEventListener('contextmenu', e=> e.preventDefault());
+  canvas.addEventListener('mousedown', e=>{
+    drawing = true;
+    paintAt(e.clientX, e.clientY, e.button===2 || e.shiftKey);
+  });
+  canvas.addEventListener('mousemove', e=>{
+    if(drawing) paintAt(e.clientX, e.clientY, e.buttons===2 || e.shiftKey);
+  });
+  window.addEventListener('mouseup', ()=> drawing = false);
+
+  document.addEventListener('keydown', e=>{
+    if(document.activeElement === ruleEditor) return;
+    if(e.code === 'Space'){ e.preventDefault(); playing ? pause() : play(); }
+    if(e.key === 'e' || e.key === 'E'){ toggleDrawer(); }
+    if(e.key === 'Escape'){ closeDrawer(); }
+  });
+
+  window.addEventListener('resize', ()=>{ pause(); resizeCanvas(); render(); });
+
+  // ---------- 閒置時淡出 HUD ----------
+  let idleTimer = null;
+  function resetIdle(){
+    huds.forEach(h => h.classList.remove('idle'));
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(()=>{ huds.forEach(h => h.classList.add('idle')); }, 3200);
+  }
+  ['mousemove','mousedown','touchstart'].forEach(evt=>{
+    window.addEventListener(evt, resetIdle);
+  });
+  resetIdle();
+
+  // ---------- 初始化 ----------
+  presetSelect.value = 'classic';
+  loadPreset('classic');
+  resizeCanvas();
+  initGrid(true);
+
+})();
+</script>
+</body>
+</html>
